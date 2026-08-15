@@ -36,7 +36,6 @@ func DeclareAndBind(
 	queueName,
 	key string,
 	queueType SimpleQueueType, // SimpleQueueType is an "enum" type I made to represent "durable" or "transient"
-
 ) (*amqp.Channel, amqp.Queue, error) {
 
 	mqChan, err := conn.Channel()
@@ -57,4 +56,34 @@ func DeclareAndBind(
 	return mqChan, mqQueue, nil
 	}
 
+func SubscribeJSON[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T),
+) error {
+	ch, qu, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		return fmt.Errorf("There was an issue establishing either channel: %v or queue: %v. error: %v", ch, qu, err)
+	}
+
+	delivery, err  := ch.Consume(qu.Name, "", false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("There was an issue creating new channel %v, err: %v", delivery, err)
+	}
+		go func() {
+			for d := range delivery {
+				var data T
+				err := json.Unmarshal(d.Body, &data)
+				if err != nil {
+					return //fmt.Errorf("Failed to unmarshal channel data: %v", err)
+				}
+				handler(data)
+				d.Ack(false)
+			}
+		}()
+	return nil
+}
 
